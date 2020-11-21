@@ -389,8 +389,8 @@ def make_move(matrix, player_no, player_mark)
         next_player_no = next_turn_no(player_no)
         all_possible_moves(matrix_copy) do |y, x|
             matrix_copy[y][x] = player_no
-            # score = alphabeta(matrix_copy, next_player_no, minimax_depth, -100, 100, false)
-            score = minimax(matrix_copy, next_player_no, minimax_depth, false)
+            score = alphabeta(matrix_copy, next_player_no, minimax_depth, -100, 100, false)
+            # score = minimax(matrix_copy, next_player_no, minimax_depth, false)
             matrix_copy[y][x] = 0
             if score > best_score
                 best_score = score
