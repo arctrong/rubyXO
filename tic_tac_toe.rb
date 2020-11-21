@@ -1,8 +1,11 @@
 # Detecting arrow keyboard keys is a difficult problem.
 # So a simpler solution is used.
 
-# The current version looks like working correctly (no strict tests done yet).
+# The current version looks like working correctly (no strict tests done).
 # The Minimax depth is limited for boards greater than 3x3. Otherwise thinks a move unreasonably long.
+
+# On board 3x3 Alpha-beta pruning gives about 4 times less operations (see profiling files).
+# On board 4x4 Alpha-beta pruning gives about 20 times less operations (see profiling files).
 
 
 require 'io/console'
@@ -20,7 +23,6 @@ end
 @COMPUTER_NO = 2
 @MINIMAX_DEPTH = 0
 
-# @profiling_file = File.open("profiling.txt", "w")
 
 usage = "Usage: <sign> [<size>]
 where: <sign>    'x' (first move) or 'o'
@@ -63,6 +65,9 @@ current_steps = 1
     @MINIMAX_DEPTH += 1
 end
 
+@profiling_file = File.open("profiling.txt", "w")
+@profiling_file.puts "@SIZE=#{@SIZE}, @MINIMAX_DEPTH=#{@MINIMAX_DEPTH}"
+@step_count = 0
 
 def next_turn_no(turn_no)
     return turn_no == @COMPUTER_NO ? @HUMAN_NO : @COMPUTER_NO
@@ -272,101 +277,52 @@ def copy_matrix(matrix)
 end
 
 
+# Minimax without alpha–beta pruning
 # https://en.wikipedia.org/wiki/Minimax#Pseudocode
-# Without alpha–beta pruning
-# (https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning#Pseudocode)
-def minimax(matrix, player_no, depth, is_maximizing, debug_level)
-    
-    debug_level += 1
-    
-    if @DEBUG
-        @debug_file.puts("L_#{debug_level} #{depth} #{matrix} #{player_no} #{is_maximizing}")
-    end
+def minimax(matrix, player_no, depth, is_maximizing)
+
+    @step_count += 1 # profiling
     
     result = check(matrix)
-    
-    if @DEBUG
-        if result == 0; @debug_file.puts("L_#{debug_level} leaf result = 0"); end
-    end
     
     return 0 if result == 0
     if result
         result = result == player_no ? 1 : -1
-        result = [is_maximizing ? result : -result, nil]
-        
-        if @DEBUG
-            @debug_file.puts("L_#{debug_level} leaf value = #{result}")
-        end
-        
-        return result
+        return is_maximizing ? result : -result
     end
     
     return 0 if depth == 0
     depth = depth ? depth - 1 : depth
     
-    all_possible_moves = get_all_possible_moves(matrix)
-
-    
-    # if @DEBUG
-        # @debug_file.puts("L_#{debug_level} #{all_possible_moves}")
-    # end
-
-    
+    next_player_no = next_turn_no(player_no)
     if is_maximizing
         value = -100
-        move = nil
-        # x, y = nil
-        all_possible_moves.each do |y, x|
+        all_possible_moves(matrix) do |y, x|
             matrix[y][x] = player_no
-            new_value = minimax(matrix, next_turn_no(player_no), depth, false, debug_level)[0]
-            
-            if @DEBUG
-                @debug_file.puts("L_#{debug_level} value = #{new_value}")
-            end
-            
-            if new_value > value
-                value = new_value
-                move = [y, x]
-            end
+            new_value = minimax(matrix, next_player_no, depth, false)
             matrix[y][x] = 0
+            value = [new_value, value].max
         end
-        
-        if @DEBUG
-            @debug_file.puts("L_#{debug_level} #{[value, move]} #{is_maximizing}")
-        end
-        
-        return [value, move]
+        return value
     else
         value = 100
-        move = nil
-        # x, y = nil
-        all_possible_moves.each do |y, x|
+        all_possible_moves(matrix) do |y, x|
             matrix[y][x] = player_no
-            new_value = minimax(matrix, next_turn_no(player_no), depth, true, debug_level)[0]
-            
-            if @DEBUG
-                @debug_file.puts("L_#{debug_level} value = #{new_value}")
-            end
-            
-            if new_value < value
-                value = new_value
-                move = [y, x]
-            end
+            new_value = minimax(matrix, next_player_no, depth, true)
             matrix[y][x] = 0
+            value = [new_value, value].min
         end
-        
-        if @DEBUG
-            @debug_file.puts("L_#{debug_level} #{[value, move]} #{is_maximizing}")
-        end
-        
-        return [value, move]
+        return value
     end
 end
 
 
 # Minimax with alpha–beta pruning
-# TODO Apply alpha–beta pruning (https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning#Pseudocode)
+# https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning#Pseudocode
+# https://en.wikipedia.org/wiki/Minimax#Pseudocode
 def alphabeta(matrix, player_no, depth, alpha, beta, is_maximizing)
+    
+    @step_count += 1 # profiling
     
     result = check(matrix)
     
@@ -422,18 +378,19 @@ def make_move(matrix, player_no, player_mark)
         x = rand 0...@SIZE
         y = rand 0...@SIZE
     else
+        @step_count += 0 # profiling
+    
         # First move is done randomly (of by the human player),
         # the second level we implement ourself.
         minimax_depth = @MINIMAX_DEPTH - 2
         matrix_copy = copy_matrix(matrix)
-        # y, x = minimax(matrix_copy, player_no, @MINIMAX_DEPTH, true, 0)[1]
-        # y, x = alphabeta(matrix_copy, player_no, @MINIMAX_DEPTH, -100, 100, true)[1]
         best_move = nil
         best_score = -100
         next_player_no = next_turn_no(player_no)
         all_possible_moves(matrix_copy) do |y, x|
             matrix_copy[y][x] = player_no
-            score = alphabeta(matrix_copy, next_player_no, minimax_depth, -100, 100, false)
+            # score = alphabeta(matrix_copy, next_player_no, minimax_depth, -100, 100, false)
+            score = minimax(matrix_copy, next_player_no, minimax_depth, false)
             matrix_copy[y][x] = 0
             if score > best_score
                 best_score = score
@@ -441,6 +398,8 @@ def make_move(matrix, player_no, player_mark)
             end
         end
         y, x = best_move
+        
+        @profiling_file.puts @step_count
     end
     apply_move(matrix, y, x, player_no, player_mark)
 end
@@ -457,6 +416,7 @@ while @move_count < @MOVE_TOTAL do
     
     if current_player_no == @COMPUTER_NO
         make_move(@M, @COMPUTER_NO, @computer_mark)
+        # make_move_simple(@M, @COMPUTER_NO, @computer_mark)
         current_player_no = @HUMAN_NO
     else
         if read_move(@M) == :Q
@@ -476,5 +436,5 @@ end
 
 print_result(0)
 
-@debug_file.close unless @debug_file.nil?
+@profiling_file.close unless @profiling_file.nil?
 

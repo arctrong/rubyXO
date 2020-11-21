@@ -1,0 +1,13 @@
+@SIZE=3, @MINIMAX_DEPTH=9
+
+minimax
+6811
+7068
+7083
+7084
+
+alphabeta
+1297
+1456
+1471
+1472
