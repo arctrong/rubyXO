@@ -1,10 +1,8 @@
 # Detecting arrow keyboard keys is a difficult problem.
-# So a simpler solution will be used.
+# So a simpler solution is used.
 
 # The current version looks like working correctly (no strict tests done yet).
-# But it can be used only with 3x3 field. With 4x4 field it consume too much resources.
-
-# TODO Apply alpha–beta pruning (https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning#Pseudocode)
+# The Minimax depth is limited for boards greater than 3x3. Otherwise thinks a move unreasonably long.
 
 
 require 'io/console'
@@ -17,19 +15,22 @@ if @DEBUG
     @debug_file = File.open("debug.txt", "w")
 end
 
-
-
 @SIZE = 3
 @HUMAN_NO = 1
 @COMPUTER_NO = 2
+@MINIMAX_DEPTH = 0
 
-usage = "An argument must be 'x' (first move) or 'o'."
+# @profiling_file = File.open("profiling.txt", "w")
+
+usage = "Usage: <sign> [<size>]
+where: <sign>    'x' (first move) or 'o'
+       <size>    reasonable size of the board, e.g. 3 for board 3x3"
 
 current_player_no = nil
 @human_mark = nil
 @computer_mark = nil
 
-if ARGV.length != 1
+if not [1, 2].include?(ARGV.length)
   puts usage
   exit
 end
@@ -41,6 +42,25 @@ if ['X', 'O'].include?(@human_mark)
 else
   puts usage
   exit
+end
+
+if ARGV.length == 2
+    size = ARGV[1].to_i
+    if size >= 2 and size <= 25
+        @SIZE = size
+    else
+      puts usage
+      exit
+    end
+end
+
+# Limiting Minimax depth
+max_steps = 500_000_000
+current_steps = 1
+(1..@SIZE * @SIZE).reverse_each do |i|
+    current_steps *= i
+    break if current_steps > max_steps
+    @MINIMAX_DEPTH += 1
 end
 
 
@@ -144,6 +164,8 @@ def print_result(result)
 end
 
 puts 
+puts "Minimax depth: #{@MINIMAX_DEPTH}"
+puts 
 puts 'Use the following key sets for navigation:'
 puts 
 puts '    8          i    i.e. 8, i    - up     4, j - left'
@@ -227,6 +249,15 @@ def get_all_possible_moves(matrix)
         (0...@SIZE).each {|col| matrix[row][col] == 0 ? result << [row, col] : nil}
     end
     return result
+end
+
+
+def all_possible_moves(matrix)
+    (0...@SIZE).each do |row|
+        (0...@SIZE).each do |col|
+            yield [row, col] if matrix[row][col] == 0
+        end
+    end
 end
 
 
@@ -333,6 +364,48 @@ def minimax(matrix, player_no, depth, is_maximizing, debug_level)
 end
 
 
+# Minimax with alpha–beta pruning
+# TODO Apply alpha–beta pruning (https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning#Pseudocode)
+def alphabeta(matrix, player_no, depth, alpha, beta, is_maximizing)
+    
+    result = check(matrix)
+    
+    return 0 if result == 0
+    if result
+        result = result == player_no ? 1 : -1
+        return is_maximizing ? result : -result
+    end
+    
+    return 0 if depth == 0
+    depth = depth ? depth - 1 : depth
+    
+    next_player_no = next_turn_no(player_no)
+    if is_maximizing
+        value = -100
+        all_possible_moves(matrix) do |y, x|
+            matrix[y][x] = player_no
+            new_value = alphabeta(matrix, next_player_no, depth, alpha, beta, false)
+            matrix[y][x] = 0
+            value = [new_value, value].max
+            alpha = [alpha, value].max
+            break if alpha >= beta
+        end
+        return value
+    else
+        value = 100
+        all_possible_moves(matrix) do |y, x|
+            matrix[y][x] = player_no
+            new_value = alphabeta(matrix, next_player_no, depth, alpha, beta, true)
+            matrix[y][x] = 0
+            value = [new_value, value].min
+            beta = [beta, value].min
+            break if alpha >= beta
+        end
+        return value
+    end
+end
+
+
 def apply_move(matrix, y, x, player_no, player_mark)
     matrix[y][x] = player_no
     save_x = @x
@@ -349,8 +422,25 @@ def make_move(matrix, player_no, player_mark)
         x = rand 0...@SIZE
         y = rand 0...@SIZE
     else
+        # First move is done randomly (of by the human player),
+        # the second level we implement ourself.
+        minimax_depth = @MINIMAX_DEPTH - 2
         matrix_copy = copy_matrix(matrix)
-        y, x = minimax(matrix_copy, player_no, nil, true, 0)[1]
+        # y, x = minimax(matrix_copy, player_no, @MINIMAX_DEPTH, true, 0)[1]
+        # y, x = alphabeta(matrix_copy, player_no, @MINIMAX_DEPTH, -100, 100, true)[1]
+        best_move = nil
+        best_score = -100
+        next_player_no = next_turn_no(player_no)
+        all_possible_moves(matrix_copy) do |y, x|
+            matrix_copy[y][x] = player_no
+            score = alphabeta(matrix_copy, next_player_no, minimax_depth, -100, 100, false)
+            matrix_copy[y][x] = 0
+            if score > best_score
+                best_score = score
+                best_move = [y, x]
+            end
+        end
+        y, x = best_move
     end
     apply_move(matrix, y, x, player_no, player_mark)
 end
